@@ -10,8 +10,7 @@ A production-ready Express server with lead capture, knowledge base, webhooks, a
 ```typescript
 import express from 'express';
 import { chatcopsMiddleware } from '@chatcops/server';
-import { LeadCaptureTool } from '@chatcops/core/tools';
-import { FAQKnowledgeSource, TextKnowledgeSource } from '@chatcops/core/knowledge';
+import { LeadCaptureTool, FAQKnowledgeSource, TextKnowledgeSource } from '@chatcops/core';
 
 const app = express();
 app.use(express.json());
@@ -35,18 +34,16 @@ app.all('/chat', chatcopsMiddleware({
     Always be transparent about being an AI assistant.`,
 
   tools: [
-    new LeadCaptureTool({
-      onCapture: async (lead) => {
-        console.log('New lead captured:', lead.email);
-        // Save to database
-        // await db.leads.create(lead);
+    new LeadCaptureTool(async (lead) => {
+      console.log('New lead captured:', lead.email);
+      // Save to database
+      // await db.leads.create(lead);
 
-        // Send to webhook/CRM
-        // await fetch('https://hooks.zapier.com/...', {
-        //   method: 'POST',
-        //   body: JSON.stringify(lead),
-        // });
-      },
+      // Send to webhook/CRM
+      // await fetch('https://hooks.zapier.com/...', {
+      //   method: 'POST',
+      //   body: JSON.stringify(lead),
+      // });
     }),
   ],
 
@@ -58,12 +55,12 @@ app.all('/chat', chatcopsMiddleware({
       { question: 'What payment methods do you accept?', answer: 'Visa, Mastercard, PayPal, wire transfer.' },
       { question: 'Do you have an API?', answer: 'Yes! Check docs.acme.com for our REST API.' },
     ]),
-    new TextKnowledgeSource(
+    new TextKnowledgeSource([
       `Acme Corp was founded in 2020. We build AI-powered customer support tools.
       Our flagship product helps businesses add intelligent chat to their websites.
       We serve over 500 businesses across 30 countries.
-      Our team is based in San Francisco, CA with remote employees worldwide.`
-    ),
+      Our team is based in San Francisco, CA with remote employees worldwide.`,
+    ]),
   ],
 
   webhooks: [
