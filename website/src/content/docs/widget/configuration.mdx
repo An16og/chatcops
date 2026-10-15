@@ -129,7 +129,7 @@ interface WidgetConfig {
     textColor?: string;       // Hex color, default: '#FAFAF9'
     bgColor?: string;         // Hex color, default: '#0A0A0A'
     fontFamily?: string;      // CSS font-family
-    borderRadius?: string;    // px, default: '12'
+    borderRadius?: string | number;  // px if a number or numeric string (12, '12'), or any CSS length ('1rem'). Default: 12
     position?: 'bottom-right' | 'bottom-left';
   };
 
@@ -172,7 +172,7 @@ interface WidgetConfig {
 | `data-text-color` | `theme.textColor` | Primary text color |
 | `data-bg-color` | `theme.bgColor` | Background color |
 | `data-font-family` | `theme.fontFamily` | Font family |
-| `data-border-radius` | `theme.borderRadius` | Border radius in px |
+| `data-border-radius` | `theme.borderRadius` | Border radius. A bare number is px (`12`), or use any CSS length (`1rem`) |
 | `data-position` | `theme.position` | `'bottom-right'` or `'bottom-left'` |
 | `data-brand-name` | `branding.name` | Header title |
 | `data-brand-avatar` | `branding.avatar` | Avatar image URL |
