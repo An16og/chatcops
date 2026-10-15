@@ -15,7 +15,7 @@ ChatCops.init({
     textColor: '#FAFAF9',        // Main text color
     bgColor: '#0A0A0A',          // Widget background
     fontFamily: 'Inter, sans-serif',
-    borderRadius: 12,            // px
+    borderRadius: 12,            // px if a number, or any CSS length like '1rem'
     position: 'bottom-right',    // or 'bottom-left'
   },
 });
@@ -80,7 +80,7 @@ interface ThemeConfig {
   textColor?: string;       // Hex color
   bgColor?: string;         // Hex color
   fontFamily?: string;      // CSS font-family string
-  borderRadius?: number;    // Pixels
+  borderRadius?: string | number;  // px if a number or numeric string (12, '12'), or any CSS length ('1rem')
   position?: 'bottom-right' | 'bottom-left';
 }
 ```
