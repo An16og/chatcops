@@ -1,5 +1,11 @@
 # @chatcops/widget
 
+## 0.4.3
+
+### Patch Changes
+
+- e7f9de4: Render `#` to `######` headings and `*`/`+` bullet lists in chat replies, and stop treating asterisks with spaces around them (like `5 * 3`) as italic.
+
 ## 0.4.2
 
 ### Patch Changes

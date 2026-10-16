@@ -1,5 +1,11 @@
 # @chatcops/server
 
+## 0.3.3
+
+### Patch Changes
+
+- a31d5c6: Return immediately from the tool executor when capturing leads without awaiting webhook delivery. Pending deliveries are tracked and awaited with `Promise.allSettled` before the final `done` response to prevent dropped webhooks on serverless hosts, and webhook `fetch` calls use `AbortSignal.timeout` to prevent hanging indefinitely.
+
 ## 0.3.2
 
 ### Patch Changes
