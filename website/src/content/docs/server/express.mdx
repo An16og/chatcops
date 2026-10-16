@@ -14,7 +14,7 @@ import { chatcopsMiddleware } from '@chatcops/server';
 const app = express();
 app.use(express.json());
 
-app.post('/chat', chatcopsMiddleware({
+app.all('/chat', chatcopsMiddleware({
   provider: {
     type: 'claude',
     apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -34,24 +34,26 @@ app.listen(PORT, () => {
 });
 ```
 
+:::note
+Cross-origin deployments must let `OPTIONS` preflight requests reach the Express adapter by registering the chat handler with `app.all('/chat', handler)`.
+:::
+
 ## With Lead Capture
 
 ```typescript
-import { LeadCaptureTool } from '@chatcops/core/tools';
+import { LeadCaptureTool } from '@chatcops/core';
 
-app.post('/chat', chatcopsMiddleware({
+app.all('/chat', chatcopsMiddleware({
   provider: {
     type: 'claude',
     apiKey: process.env.ANTHROPIC_API_KEY!,
   },
   systemPrompt: 'You are a helpful assistant. Capture leads when users share contact info.',
   tools: [
-    new LeadCaptureTool({
-      onCapture: async (lead) => {
-        // Save to your database, CRM, etc.
-        await db.leads.create(lead);
-        console.log('Lead captured:', lead.email);
-      },
+    new LeadCaptureTool(async (lead) => {
+      // Save to your database, CRM, etc.
+      await db.leads.create(lead);
+      console.log('Lead captured:', lead.email);
     }),
   ],
 }));
@@ -60,9 +62,9 @@ app.post('/chat', chatcopsMiddleware({
 ## With Knowledge Base
 
 ```typescript
-import { FAQKnowledgeSource, TextKnowledgeSource } from '@chatcops/core/knowledge';
+import { FAQKnowledgeSource, TextKnowledgeSource } from '@chatcops/core';
 
-app.post('/chat', chatcopsMiddleware({
+app.all('/chat', chatcopsMiddleware({
   provider: { type: 'openai', apiKey: process.env.OPENAI_API_KEY! },
   systemPrompt: 'Answer questions using the provided context.',
   knowledge: [
@@ -70,10 +72,9 @@ app.post('/chat', chatcopsMiddleware({
       { question: 'What are your hours?', answer: '9am-5pm EST, Monday-Friday.' },
       { question: 'Do you offer refunds?', answer: 'Yes, within 30 days of purchase.' },
     ]),
-    new TextKnowledgeSource(
+    new TextKnowledgeSource([
       'Our company was founded in 2020. We specialize in AI solutions...',
-      { chunkSize: 500 }
-    ),
+    ]),
   ],
 }));
 ```

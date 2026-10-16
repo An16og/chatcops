@@ -11,7 +11,7 @@ import { chatcopsMiddleware } from '@chatcops/server';
 const app = express();
 app.use(express.json());
 
-app.post('/chat', chatcopsMiddleware({
+app.all('/chat', chatcopsMiddleware({
   provider: {
     type: 'claude',
     apiKey: process.env.ANTHROPIC_API_KEY,
@@ -45,18 +45,22 @@ export default chatcopsVercelHandler({
     label: 'Cloudflare',
     code: `import { chatcopsCloudflareHandler } from '@chatcops/server';
 
+let handler: ReturnType<typeof chatcopsCloudflareHandler> | undefined;
+function getHandler(env) {
+  handler ??= chatcopsCloudflareHandler({
+    provider: {
+      type: 'claude',
+      apiKey: env.ANTHROPIC_API_KEY,
+    },
+    systemPrompt: 'You are a helpful assistant.',
+    cors: '*',
+  });
+  return handler;
+}
+
 export default {
   async fetch(request, env) {
-    const handler = chatcopsCloudflareHandler({
-      provider: {
-        type: 'claude',
-        apiKey: env.ANTHROPIC_API_KEY,
-      },
-      systemPrompt: 'You are a helpful assistant.',
-      cors: '*',
-    });
-
-    return handler(request);
+    return getHandler(env)(request);
   },
 };`,
   },

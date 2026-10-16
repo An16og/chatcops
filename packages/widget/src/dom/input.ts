@@ -1,3 +1,6 @@
+// Must match the message limit in packages/server/src/config.ts (chatRequestSchema).
+const MAX_MESSAGE_LENGTH = 10_000;
+
 export interface InputOptions {
   placeholder: string;
   onSend: (text: string) => void;
@@ -19,6 +22,7 @@ export class Input {
     this.textarea.className = 'cc-input';
     this.textarea.placeholder = options.placeholder;
     this.textarea.rows = 1;
+    this.textarea.maxLength = MAX_MESSAGE_LENGTH;
     this.textarea.addEventListener('input', () => this.autoResize());
     this.textarea.addEventListener('keydown', (e) => this.handleKeydown(e));
 
@@ -65,6 +69,9 @@ export class Input {
   }
 
   private handleKeydown(e: KeyboardEvent): void {
+    // Safari may report isComposing as false when confirming an IME candidate.
+    if (e.isComposing || e.keyCode === 229) return;
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       this.send();

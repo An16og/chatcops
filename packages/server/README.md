@@ -19,7 +19,7 @@ import { chatcopsMiddleware } from '@chatcops/server';
 const app = express();
 app.use(express.json());
 
-app.post('/chat', chatcopsMiddleware({
+app.all('/chat', chatcopsMiddleware({
   provider: {
     type: 'claude',
     apiKey: process.env.ANTHROPIC_API_KEY,
@@ -52,14 +52,19 @@ export const config = { runtime: 'edge' };
 ```typescript
 import { chatcopsCloudflareHandler } from '@chatcops/server';
 
+let handler: ReturnType<typeof chatcopsCloudflareHandler> | undefined;
+function getHandler(env: Env) {
+  handler ??= chatcopsCloudflareHandler({
+    provider: { type: 'claude', apiKey: env.ANTHROPIC_API_KEY },
+    systemPrompt: 'You are a helpful assistant.',
+    cors: '*',
+  });
+  return handler;
+}
+
 export default {
   async fetch(request: Request, env: Env) {
-    const handler = chatcopsCloudflareHandler({
-      provider: { type: 'claude', apiKey: env.ANTHROPIC_API_KEY },
-      systemPrompt: 'You are a helpful assistant.',
-      cors: '*',
-    });
-    return handler(request);
+    return getHandler(env)(request);
   },
 };
 ```
@@ -106,7 +111,7 @@ const handler = createChatHandler({
   // Analytics (optional)
   analytics: true,
 
-  // CORS origin (required)
+  // CORS origin (optional, default: '*')
   cors: '*',
 });
 ```

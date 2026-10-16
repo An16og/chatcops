@@ -1,5 +1,11 @@
 # ChatCops
 
+[![CI](https://github.com/codercops/chatcops/actions/workflows/ci.yml/badge.svg)](https://github.com/codercops/chatcops/actions/workflows/ci.yml)
+[![npm @chatcops/widget](https://img.shields.io/npm/v/@chatcops/widget?label=widget)](https://www.npmjs.com/package/@chatcops/widget)
+[![npm @chatcops/core](https://img.shields.io/npm/v/@chatcops/core?label=core)](https://www.npmjs.com/package/@chatcops/core)
+[![npm @chatcops/server](https://img.shields.io/npm/v/@chatcops/server?label=server)](https://www.npmjs.com/package/@chatcops/server)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 Universal, embeddable AI chatbot widget. Add an AI assistant to any website with a single `<script>` tag.
 
 Multi-provider (Claude, OpenAI, Gemini), lead capture, knowledge base, conversation persistence, analytics, and i18n.
@@ -29,7 +35,7 @@ import { chatcopsMiddleware } from '@chatcops/server';
 const app = express();
 app.use(express.json());
 
-app.post('/chat', chatcopsMiddleware({
+app.all('/chat', chatcopsMiddleware({
   provider: {
     type: 'claude',
     apiKey: process.env.ANTHROPIC_API_KEY,
@@ -120,11 +126,19 @@ export default chatcopsVercelHandler({
 ```typescript
 import { chatcopsCloudflareHandler } from '@chatcops/server/cloudflare';
 
-export default {
-  fetch: chatcopsCloudflareHandler({
+let handler: ReturnType<typeof chatcopsCloudflareHandler> | undefined;
+function getHandler(env: Env) {
+  handler ??= chatcopsCloudflareHandler({
     provider: { type: 'openai', apiKey: env.OPENAI_API_KEY },
     systemPrompt: 'You are a helpful assistant.',
-  }),
+  });
+  return handler;
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    return getHandler(env)(request);
+  },
 };
 ```
 
@@ -137,6 +151,23 @@ pnpm test
 ```
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
+
+## Community
+
+Questions, or want to chat with other contributors? Join the [CODERCOPS Discord](https://discord.gg/mpGdJyjaRQ).
+
+## Links
+
+- [Documentation](https://chat.codercops.com)
+- [Contributing Guide](./CONTRIBUTING.md)
+- [Report a Bug](https://github.com/codercops/chatcops/issues/new)
+- [CoderCops](https://codercops.com)
+
+## Contributors
+
+<a href="https://github.com/codercops/chatcops/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=codercops/chatcops" />
+</a>
 
 ## License
 

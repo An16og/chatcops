@@ -4,6 +4,14 @@ export { Widget, type WidgetConfig } from './widget.js';
 
 let instance: Widget | null = null;
 
+export function parseAutoOpen(value?: string): boolean | number | undefined {
+  if (value === undefined) return undefined;
+  if (value === '' || value === 'true') return true;
+  if (value === 'false') return false;
+  if (/^\d+$/.test(value)) return Number(value);
+  return undefined;
+}
+
 const ChatCops = {
   init(config: WidgetConfig): Widget {
     if (instance) {
@@ -37,8 +45,7 @@ const ChatCops = {
 };
 
 // Auto-init from script tag data attributes
-function autoInit(): void {
-  const script = document.currentScript as HTMLScriptElement | null;
+function autoInit(script: HTMLScriptElement | null): void {
   if (!script) return;
 
   const apiUrl = script.dataset.apiUrl;
@@ -71,23 +78,19 @@ function autoInit(): void {
           delay: script.dataset.welcomeBubbleDelay ? parseInt(script.dataset.welcomeBubbleDelay, 10) : undefined,
         }
       : undefined,
-    autoOpen: script.dataset.autoOpen !== undefined
-      ? (script.dataset.autoOpen === '' || script.dataset.autoOpen === 'true'
-        ? true
-        : parseInt(script.dataset.autoOpen, 10) || true)
-      : undefined,
+    autoOpen: parseAutoOpen(script.dataset.autoOpen),
     placeholder: script.dataset.placeholder,
     locale: script.dataset.locale,
   });
 }
 
 // Capture currentScript synchronously, then init on DOMContentLoaded
-const currentScript = document.currentScript;
-if (currentScript && (currentScript as HTMLScriptElement).dataset.apiUrl) {
+const currentScript = typeof document !== 'undefined' ? (document.currentScript as HTMLScriptElement | null) : null;
+if (currentScript && currentScript.dataset.apiUrl) {
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', autoInit);
+    document.addEventListener('DOMContentLoaded', () => autoInit(currentScript));
   } else {
-    autoInit();
+    autoInit(currentScript);
   }
 }
 

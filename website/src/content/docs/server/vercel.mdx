@@ -51,8 +51,7 @@ Point the widget to your Vercel deployment:
 
 ```typescript
 import { chatcopsVercelHandler } from '@chatcops/server';
-import { LeadCaptureTool } from '@chatcops/core/tools';
-import { FAQKnowledgeSource } from '@chatcops/core/knowledge';
+import { LeadCaptureTool, FAQKnowledgeSource } from '@chatcops/core';
 
 export const config = { runtime: 'edge' };
 
@@ -65,13 +64,11 @@ export default chatcopsVercelHandler({
   systemPrompt: `You are the AI assistant for Acme Corp.
     Help users with product questions and capture leads.`,
   tools: [
-    new LeadCaptureTool({
-      onCapture: async (lead) => {
-        await fetch('https://hooks.zapier.com/...', {
-          method: 'POST',
-          body: JSON.stringify(lead),
-        });
-      },
+    new LeadCaptureTool(async (lead) => {
+      await fetch('https://hooks.zapier.com/...', {
+        method: 'POST',
+        body: JSON.stringify(lead),
+      });
     }),
   ],
   knowledge: [

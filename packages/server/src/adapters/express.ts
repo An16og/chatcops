@@ -2,13 +2,27 @@ import type { Request, Response, NextFunction } from 'express';
 import { createChatHandler } from '../handler.js';
 import type { ChatCopsServerConfig } from '../config.js';
 
+type ChatHandler = ReturnType<typeof createChatHandler>;
+
+const chatHandlers = new WeakMap<ChatCopsServerConfig, ChatHandler>();
+
+function getOrCreateChatHandler(config: ChatCopsServerConfig): ChatHandler {
+  let handler = chatHandlers.get(config);
+  if (!handler) {
+    handler = createChatHandler(config);
+    chatHandlers.set(config, handler);
+  }
+  return handler;
+}
+
 export function chatcopsMiddleware(config: ChatCopsServerConfig) {
-  const { handleChat, getAnalytics } = createChatHandler(config);
+  const { handleChat } = getOrCreateChatHandler(config);
+  const corsOrigin = config.cors ?? '*';
 
   return async function chatcopsHandler(req: Request, res: Response, next: NextFunction) {
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
-      res.setHeader('Access-Control-Allow-Origin', config.cors);
+      res.setHeader('Access-Control-Allow-Origin', corsOrigin);
       res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
       res.setHeader('Access-Control-Max-Age', '86400');
@@ -26,7 +40,7 @@ export function chatcopsMiddleware(config: ChatCopsServerConfig) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', config.cors);
+    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
 
     try {
       for await (const chunk of handleChat(req.body, clientIp)) {
@@ -42,7 +56,7 @@ export function chatcopsMiddleware(config: ChatCopsServerConfig) {
 }
 
 export function chatcopsAnalyticsHandler(config: ChatCopsServerConfig) {
-  const { getAnalytics } = createChatHandler(config);
+  const { getAnalytics } = getOrCreateChatHandler(config);
   return (_req: Request, res: Response) => {
     res.json(getAnalytics());
   };
