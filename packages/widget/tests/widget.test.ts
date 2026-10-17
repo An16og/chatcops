@@ -14,6 +14,8 @@ type WidgetInternals = {
     errorType?: 'rate_limit' | 'network' | 'provider_error' | 'timeout';
   }>;
   isStreaming: boolean;
+  userData?: Record<string, string>;
+  showChatView(): void;
   handleSend(text: string): Promise<void>;
   handleRetry(messageId: string): Promise<void>;
   handleRegenerate(messageId: string): Promise<void>;
@@ -77,6 +79,88 @@ describe('Widget', () => {
       widget.destroy();
     }
   );
+
+  it('strings: { closeButton } overrides the close aria-label on both the panel header and the FAB', () => {
+    const widget = new Widget({
+      apiUrl: 'https://api.test/chat',
+      strings: { closeButton: 'Cerrar' },
+    });
+    widget.init();
+
+    const root = getInternals(widget).shadow;
+    const headerClose = root.querySelector('.cc-header-close') as HTMLButtonElement;
+    const launcher = root.querySelector('.cc-fab') as HTMLButtonElement;
+
+    expect(headerClose.getAttribute('aria-label')).toBe('Cerrar');
+
+    launcher.click();
+    expect(launcher.getAttribute('aria-label')).toBe('Cerrar');
+
+    widget.destroy();
+  });
+
+  it('greeting: no name → shows site welcomeMessage as-is', () => {
+    const widget = new Widget({
+      apiUrl: 'https://api.test/chat',
+      welcomeMessage: 'Welcome to Acme support.',
+    });
+    widget.init();
+
+    getInternals(widget).showChatView();
+
+    const welcome = getInternals(widget).messages.find((m) => m.id === 'welcome');
+    expect(welcome?.content).toBe('Welcome to Acme support.');
+
+    widget.destroy();
+  });
+
+  it('greeting: name + default locale → uses locale welcomeMessage', () => {
+    const widget = new Widget({ apiUrl: 'https://api.test/chat' });
+    widget.init();
+
+    const internals = getInternals(widget);
+    internals.messages.length = 0;
+    internals.userData = { name: 'Alex' };
+    internals.showChatView();
+
+    const welcome = internals.messages.find((m) => m.id === 'welcome');
+    expect(welcome?.content).toBe('Hi Alex! How can I help you today?');
+
+    widget.destroy();
+  });
+
+  it('greeting: name + custom site welcomeMessage → site message is preserved', () => {
+    const widget = new Widget({
+      apiUrl: 'https://api.test/chat',
+      welcomeMessage: 'Welcome to Acme support.',
+    });
+    widget.init();
+
+    const internals = getInternals(widget);
+    internals.messages.length = 0;
+    internals.userData = { name: 'Alex' };
+    internals.showChatView();
+
+    const welcome = internals.messages.find((m) => m.id === 'welcome');
+    expect(welcome?.content).toBe('Hi Alex! Welcome to Acme support.');
+
+    widget.destroy();
+  });
+
+  it('greeting: dollar-sign patterns in name are not expanded by String.replace', () => {
+    const widget = new Widget({ apiUrl: 'https://api.test/chat' });
+    widget.init();
+
+    const internals = getInternals(widget);
+    internals.messages.length = 0;
+    internals.userData = { name: 'A$&B' };
+    internals.showChatView();
+
+    const welcome = internals.messages.find((m) => m.id === 'welcome');
+    expect(welcome?.content).toBe('Hi A$&B! How can I help you today?');
+
+    widget.destroy();
+  });
 
   it('fires the leadCaptured callback and event when the stream includes lead data', async () => {
     const onLeadCaptured = vi.fn();
