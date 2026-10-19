@@ -29,6 +29,8 @@ export interface PreChatFormConfig {
 
 export interface WidgetConfig {
   apiUrl: string;
+  /** Request/stream inactivity timeout in milliseconds. Defaults to 30000. */
+  timeout?: number;
   mode?: 'popup' | 'inline';
   container?: string | HTMLElement;
   theme?: {
@@ -92,7 +94,6 @@ export class Widget {
   private conversationId: string;
   private messages: MessageData[] = [];
   private userData?: Record<string, string>;
-  private userDataSent = false;
   private isStreaming = false;
   private destroyed = false;
   private abortController?: AbortController;
@@ -107,7 +108,7 @@ export class Widget {
 
   constructor(config: WidgetConfig) {
     this.config = config;
-    this.client = new ChatClient({ apiUrl: config.apiUrl });
+    this.client = new ChatClient({ apiUrl: config.apiUrl, timeout: config.timeout });
     this.storage = new ConversationStorage();
     this.locale = getWidgetLocale(config.locale ?? 'en', config.strings);
     this.conversationId = this.storage.getSessionId();
@@ -145,6 +146,8 @@ export class Widget {
     if (!this.isInline) {
       this.fab = new FAB(this.shadow, {
         position,
+        openLabel: this.locale.openChat,
+        closeLabel: this.locale.closeButton,
         onClick: () => this.toggle(),
       });
     }
@@ -154,12 +157,14 @@ export class Widget {
       inline: this.isInline,
       preChatEnabled: this.config.preChatForm?.enabled ?? false,
       branding: {
-        name: this.config.branding?.name ?? 'AI Assistant',
+        name: this.config.branding?.name ?? this.locale.defaultName,
         avatar: this.config.branding?.avatar,
-        subtitle: this.config.branding?.subtitle ?? 'Online',
+        subtitle: this.config.branding?.subtitle ?? this.locale.defaultSubtitle,
       },
       placeholder: this.config.placeholder ?? this.locale.inputPlaceholder,
       footerText: this.locale.poweredBy,
+      closeLabel: this.locale.closeButton,
+      sendLabel: this.locale.sendButton,
       messageActions: {
         onRetry: (messageId) => {
           void this.handleRetry(messageId);
@@ -169,6 +174,7 @@ export class Widget {
         },
         retryLabel: this.locale.retryButton,
         regenerateLabel: this.locale.regenerateButton,
+        typingLabel: this.locale.typingIndicator,
       },
       onSend: (text) => this.handleSend(text),
       onClose: () => this.close(),
@@ -183,6 +189,13 @@ export class Widget {
           this.messages.push(msg);
           this.panel.addMessage(msg);
         }
+      }
+    }
+
+    if (this.config.preChatForm?.enabled) {
+      const savedUserData = this.storage.getPreChatData(this.conversationId);
+      if (savedUserData) {
+        this.userData = savedUserData;
       }
     }
 
@@ -206,6 +219,7 @@ export class Widget {
         delay: this.config.welcomeBubble.delay,
         showOnce: this.config.welcomeBubble.showOnce ?? true,
         position,
+        dismissLabel: this.locale.dismissBubble,
         onClick: () => this.open(),
       });
     }
@@ -262,6 +276,7 @@ export class Widget {
     destroyShadowRoot(this.containerEl);
     this.eventHandlers.clear();
     this.messages = [];
+    this.userData = undefined;
   }
 
   on(event: WidgetEventType, handler: WidgetEventHandler): void {
@@ -284,8 +299,8 @@ export class Widget {
     return this.storage.isPreChatCompleted(this.conversationId);
   }
 
-  private setPreChatCompleted(): void {
-    this.storage.setPreChatCompleted(this.conversationId);
+  private setPreChatCompleted(data?: Record<string, string>): void {
+    this.storage.setPreChatCompleted(this.conversationId, data);
   }
 
   private showPreChatForm(): void {
@@ -304,8 +319,9 @@ export class Widget {
   }
 
   private handlePreChatSubmit(data: Record<string, string>): void {
+    if (!this.config.preChatForm?.enabled) return;
     this.userData = data;
-    this.setPreChatCompleted();
+    this.setPreChatCompleted(data);
 
     this.preChatFormEl?.destroy();
     this.preChatFormEl = undefined;
@@ -326,8 +342,9 @@ export class Widget {
   private showChatView(): void {
     if (this.messages.length === 0) {
       const userName = this.userData?.name;
+      const greeting = this.locale.greetingWithName.replace('{name}', () => userName!);
       const welcomeText = userName
-        ? `Hi ${userName}! ${this.config.welcomeMessage ?? this.locale.welcomeMessage}`
+        ? `${greeting} ${this.config.welcomeMessage ?? this.locale.welcomeMessage}`
         : (this.config.welcomeMessage ?? this.locale.welcomeMessage);
       const welcomeMsg: MessageData = {
         id: 'welcome',
@@ -425,7 +442,6 @@ export class Widget {
       status: 'streaming',
     };
 
-    const includeUserData = !!(this.userData && !this.userDataSent);
     let firstChunk = true;
     let requestCompleted = false;
     let hasError = false;
@@ -435,7 +451,7 @@ export class Widget {
 
     try {
       for await (const chunk of this.client.sendMessage(
-        this.createRequest(text, options, includeUserData),
+        this.createRequest(text, options),
         { signal: abortController.signal }
       )) {
         if (this.destroyed) break;
@@ -535,9 +551,6 @@ export class Widget {
       }
 
       if (!this.destroyed) {
-        if (includeUserData && requestCompleted) {
-          this.userDataSent = true;
-        }
         this.isStreaming = false;
         this.panel.input.setDisabled(false);
         this.panel.input.focus();
@@ -548,12 +561,13 @@ export class Widget {
 
   private createRequest(
     text: string,
-    options: SendRequestOptions,
-    includeUserData: boolean
+    options: SendRequestOptions
   ): WidgetChatRequest {
     const pageContext = this.config.pageContext !== false
       ? { url: window.location.href, title: document.title }
       : undefined;
+
+    const includeUserData = Boolean(this.config.preChatForm?.enabled && this.userData);
 
     return {
       conversationId: this.conversationId,

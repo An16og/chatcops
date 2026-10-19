@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Widget } from '../src/widget.js';
+import { mockChatStream } from './helpers/stream.js';
+import { ConversationStorage } from '../src/storage.js';
 
 type WidgetInternals = {
   client: {
@@ -14,9 +16,12 @@ type WidgetInternals = {
     errorType?: 'rate_limit' | 'network' | 'provider_error' | 'timeout';
   }>;
   isStreaming: boolean;
+  userData?: Record<string, string>;
+  showChatView(): void;
   handleSend(text: string): Promise<void>;
   handleRetry(messageId: string): Promise<void>;
   handleRegenerate(messageId: string): Promise<void>;
+  handlePreChatSubmit(data: Record<string, string>): void;
 };
 
 function getInternals(widget: Widget): WidgetInternals {
@@ -30,7 +35,10 @@ describe('Widget', () => {
     sessionStorage.clear();
   });
 
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it('does not open after destroy when auto-open is delayed', () => {
     vi.useFakeTimers();
@@ -77,6 +85,88 @@ describe('Widget', () => {
       widget.destroy();
     }
   );
+
+  it('strings: { closeButton } overrides the close aria-label on both the panel header and the FAB', () => {
+    const widget = new Widget({
+      apiUrl: 'https://api.test/chat',
+      strings: { closeButton: 'Cerrar' },
+    });
+    widget.init();
+
+    const root = getInternals(widget).shadow;
+    const headerClose = root.querySelector('.cc-header-close') as HTMLButtonElement;
+    const launcher = root.querySelector('.cc-fab') as HTMLButtonElement;
+
+    expect(headerClose.getAttribute('aria-label')).toBe('Cerrar');
+
+    launcher.click();
+    expect(launcher.getAttribute('aria-label')).toBe('Cerrar');
+
+    widget.destroy();
+  });
+
+  it('greeting: no name → shows site welcomeMessage as-is', () => {
+    const widget = new Widget({
+      apiUrl: 'https://api.test/chat',
+      welcomeMessage: 'Welcome to Acme support.',
+    });
+    widget.init();
+
+    getInternals(widget).showChatView();
+
+    const welcome = getInternals(widget).messages.find((m) => m.id === 'welcome');
+    expect(welcome?.content).toBe('Welcome to Acme support.');
+
+    widget.destroy();
+  });
+
+  it('greeting: name + default locale → uses locale welcomeMessage', () => {
+    const widget = new Widget({ apiUrl: 'https://api.test/chat' });
+    widget.init();
+
+    const internals = getInternals(widget);
+    internals.messages.length = 0;
+    internals.userData = { name: 'Alex' };
+    internals.showChatView();
+
+    const welcome = internals.messages.find((m) => m.id === 'welcome');
+    expect(welcome?.content).toBe('Hi Alex! How can I help you today?');
+
+    widget.destroy();
+  });
+
+  it('greeting: name + custom site welcomeMessage → site message is preserved', () => {
+    const widget = new Widget({
+      apiUrl: 'https://api.test/chat',
+      welcomeMessage: 'Welcome to Acme support.',
+    });
+    widget.init();
+
+    const internals = getInternals(widget);
+    internals.messages.length = 0;
+    internals.userData = { name: 'Alex' };
+    internals.showChatView();
+
+    const welcome = internals.messages.find((m) => m.id === 'welcome');
+    expect(welcome?.content).toBe('Hi Alex! Welcome to Acme support.');
+
+    widget.destroy();
+  });
+
+  it('greeting: dollar-sign patterns in name are not expanded by String.replace', () => {
+    const widget = new Widget({ apiUrl: 'https://api.test/chat' });
+    widget.init();
+
+    const internals = getInternals(widget);
+    internals.messages.length = 0;
+    internals.userData = { name: 'A$&B' };
+    internals.showChatView();
+
+    const welcome = internals.messages.find((m) => m.id === 'welcome');
+    expect(welcome?.content).toBe('Hi A$&B! How can I help you today?');
+
+    widget.destroy();
+  });
 
   it('fires the leadCaptured callback and event when the stream includes lead data', async () => {
     const onLeadCaptured = vi.fn();
@@ -292,5 +382,241 @@ describe('Widget', () => {
     expect(secondSignal).toBeInstanceOf(AbortSignal);
     expect(signalAbortedBeforeDestroy).toBe(false);
     expect(secondSignal?.aborted).toBe(true);
+  });
+
+  it('restores pre-chat userData and greets by name across widget recreation', async () => {
+    const config = {
+      apiUrl: 'https://api.test/chat',
+      preChatForm: {
+        enabled: true,
+        fields: [{ name: 'name', label: 'Name', type: 'text' as const, required: true }],
+      },
+    };
+
+    const widget1 = new Widget(config);
+    widget1.init();
+
+    getInternals(widget1).handlePreChatSubmit({ name: 'Jordan' });
+
+    const welcome1 = getInternals(widget1).messages.find((m) => m.id === 'welcome');
+    expect(welcome1?.content).toBe('Hi Jordan! How can I help you today?');
+
+    widget1.destroy();
+
+    const widget2 = new Widget(config);
+    widget2.init();
+
+    expect(getInternals(widget2).shadow.querySelector('.cc-prechat')).toBeNull();
+    const welcome2 = getInternals(widget2).messages.find((m) => m.id === 'welcome');
+    expect(welcome2?.content).toBe('Hi Jordan! How can I help you today?');
+
+    const sendMessage = vi.fn().mockImplementation(async function* () {
+      yield { content: 'Echo' };
+      yield { done: true };
+    });
+    getInternals(widget2).client.sendMessage = sendMessage;
+
+    await getInternals(widget2).handleSend('Hello after recreation');
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      message: 'Hello after recreation',
+      userData: { name: 'Jordan' },
+    });
+
+    widget2.destroy();
+  });
+
+  it('sends userData with every request, not just the first', async () => {
+    const widget = new Widget({
+      apiUrl: 'https://api.test/chat',
+      preChatForm: {
+        enabled: true,
+        fields: [{ name: 'name', label: 'Name', type: 'text' as const }],
+      },
+    });
+    widget.init();
+
+    getInternals(widget).handlePreChatSubmit({ name: 'Taylor', email: 'taylor@example.com' });
+
+    const sendMessage = vi.fn().mockImplementation(async function* () {
+      yield { content: 'Echo' };
+      yield { done: true };
+    });
+    getInternals(widget).client.sendMessage = sendMessage;
+
+    await getInternals(widget).handleSend('First query');
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      message: 'First query',
+      userData: { name: 'Taylor', email: 'taylor@example.com' },
+    });
+
+    await getInternals(widget).handleSend('Second query');
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage.mock.calls[1]?.[0]).toMatchObject({
+      message: 'Second query',
+      userData: { name: 'Taylor', email: 'taylor@example.com' },
+    });
+
+    const assistantMessage = getInternals(widget).messages.at(-1);
+    expect(assistantMessage?.role).toBe('assistant');
+    await getInternals(widget).handleRegenerate(assistantMessage!.id);
+    expect(sendMessage).toHaveBeenCalledTimes(3);
+    expect(sendMessage.mock.calls[2]?.[0]).toMatchObject({
+      message: 'Second query',
+      regenerate: true,
+      userData: { name: 'Taylor', email: 'taylor@example.com' },
+    });
+
+    widget.destroy();
+  });
+
+  it('does not store or send form answers when preChatForm is disabled', async () => {
+    const storage = new ConversationStorage();
+    const sessionId = storage.getSessionId();
+    storage.setPreChatCompleted(sessionId, { name: 'IgnoredUser' });
+
+    const widget = new Widget({
+      apiUrl: 'https://api.test/chat',
+      preChatForm: {
+        enabled: false,
+        fields: [{ name: 'name', label: 'Name', type: 'text' as const }],
+      },
+    });
+    widget.init();
+
+    expect(getInternals(widget).shadow.querySelector('.cc-prechat')).toBeNull();
+    const welcome = getInternals(widget).messages.find((m) => m.id === 'welcome');
+    expect(welcome?.content).toBe('How can I help you today?');
+    expect(welcome?.content).not.toContain('IgnoredUser');
+
+    const sendMessage = vi.fn().mockImplementation(async function* () {
+      yield { content: 'Echo' };
+      yield { done: true };
+    });
+    getInternals(widget).client.sendMessage = sendMessage;
+
+    await getInternals(widget).handleSend('Test without preChat');
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[0].userData).toBeUndefined();
+
+    widget.destroy();
+  });
+
+  it('handles storage failures gracefully during init and pre-chat submit', () => {
+    const getItemSpy = vi.spyOn(sessionStorage, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+
+    const widget1 = new Widget({
+      apiUrl: 'https://api.test/chat',
+      preChatForm: {
+        enabled: true,
+        fields: [{ name: 'name', label: 'Name', type: 'text' as const }],
+      },
+    });
+    expect(() => widget1.init()).not.toThrow();
+    widget1.destroy();
+
+    getItemSpy.mockRestore();
+
+    const widget2 = new Widget({
+      apiUrl: 'https://api.test/chat',
+      preChatForm: {
+        enabled: true,
+        fields: [{ name: 'name', label: 'Name', type: 'text' as const }],
+      },
+    });
+    widget2.init();
+
+    const setItemSpy = vi.spyOn(sessionStorage, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceeded');
+    });
+    expect(() => getInternals(widget2).handlePreChatSubmit({ name: 'Morgan' })).not.toThrow();
+    const welcome = getInternals(widget2).messages.find((m) => m.id === 'welcome');
+    expect(welcome?.content).toBe('Hi Morgan! How can I help you today?');
+
+    widget2.destroy();
+    setItemSpy.mockRestore();
+  });
+});
+
+describe('Widget streaming timeout configuration', () => {
+  let widget: Widget;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    localStorage.clear();
+    sessionStorage.clear();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    widget?.destroy();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it.each([undefined, 750, 0])('uses the configured timeout (%s) through the real client', async (timeout) => {
+    const transport = mockChatStream(false);
+    const onError = vi.fn();
+    widget = new Widget({ apiUrl: '/chat', timeout, persistHistory: false, onError });
+    widget.init();
+    const pending = getInternals(widget).handleSend('Hello');
+    const interval = timeout ?? 30000;
+
+    if (interval > 0) {
+      await vi.advanceTimersByTimeAsync(interval - 1);
+      expect(transport.signal.aborted).toBe(false);
+    }
+    await vi.advanceTimersByTimeAsync(interval === 0 ? 0 : 1);
+    await pending;
+
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'timeout' }));
+    expect(getInternals(widget).messages.at(-1)).toMatchObject({ status: 'error', errorType: 'timeout' });
+    expect(getInternals(widget).shadow.querySelector<HTMLTextAreaElement>('.cc-input')!.disabled).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('destroy aborts the real stream without late errors or messages', async () => {
+    const transport = mockChatStream();
+    const onError = vi.fn();
+    const onMessage = vi.fn();
+    widget = new Widget({ apiUrl: '/chat', timeout: 1000, persistHistory: false, onError, onMessage });
+    widget.init();
+    const pending = getInternals(widget).handleSend('Hello');
+    transport.send('data: {"content":"Partial reply"}\n\n');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getInternals(widget).shadow.textContent).toContain('Partial reply');
+
+    widget.destroy();
+    await pending;
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(transport.signal.aborted).toBe(true);
+    expect(transport.body.locked).toBe(false);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onMessage).toHaveBeenCalledOnce(); // Only the original user message.
+    expect(document.querySelector('#chatcops-root')).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('keeps the existing partial-error UI when an active stream later stalls', async () => {
+    const transport = mockChatStream();
+    widget = new Widget({ apiUrl: '/chat', timeout: 1000, persistHistory: false });
+    widget.init();
+    const pending = getInternals(widget).handleSend('Hello');
+    transport.send('data: {"content":"Partial reply"}\n\n');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getInternals(widget).shadow.textContent).toContain('Partial reply');
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await pending;
+
+    const reply = getInternals(widget).messages.at(-1)!;
+    expect(reply).toMatchObject({ status: 'error', errorType: 'timeout' });
+    expect(reply.content).not.toContain('Partial reply');
+    expect(getInternals(widget).shadow.textContent).not.toContain('Partial reply');
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -11,8 +11,12 @@ import { RateLimiter } from './rate-limit.js';
 import { WebhookDispatcher } from './webhook.js';
 
 export function createChatHandler(config: ChatCopsServerConfig) {
+  if (config.i18n) {
+    console.warn('[chatcops] The `i18n` option is deprecated and ignored. Set the widget text with its `strings` option.');
+  }
+
   const providerPromise = createProvider(config.provider);
-  const conversations = new ConversationManager();
+  const conversations = new ConversationManager({ store: config.conversationStore });
   const rateLimiter = config.rateLimit ? new RateLimiter(config.rateLimit) : new RateLimiter();
   const analytics = config.analytics ? new AnalyticsCollector() : null;
   const webhooks = config.webhooks?.length ? new WebhookDispatcher(config.webhooks) : null;
@@ -64,12 +68,19 @@ export function createChatHandler(config: ChatCopsServerConfig) {
     }
     analytics?.track('message:sent', { conversationId: req.conversationId });
 
-    // Add user message unless this is a regenerate request or a retry of the same message
+    // Add user message unless this is a retry of the same message or a regenerate request that already has a user message
     const hasExistingUserMessage = req.messageId
       ? conversationMessages.some((message) => message.id === req.messageId)
       : false;
+    const hasUserMessageToAnswer = req.messageId
+      ? hasExistingUserMessage
+      : conversationMessages.some((message) => message.role === 'user');
 
-    if (!req.regenerate && !hasExistingUserMessage) {
+    const shouldAddUserMessage = req.regenerate
+      ? !hasUserMessageToAnswer
+      : !hasExistingUserMessage;
+
+    if (shouldAddUserMessage) {
       const userMessage: ChatMessage = {
         id: req.messageId ?? crypto.randomUUID(),
         role: 'user',
@@ -129,6 +140,8 @@ export function createChatHandler(config: ChatCopsServerConfig) {
         systemPrompt,
         tools: toolDefs.length > 0 ? toolDefs : undefined,
         toolTimeoutMs: config.toolTimeoutMs,
+        maxTokens: config.maxTokens,
+        temperature: config.temperature,
         toolExecutor: async (toolCall) => {
           const tool = toolsByName.get(toolCall.name);
           if (!tool) {

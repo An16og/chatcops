@@ -131,6 +131,32 @@ describe('createChatHandler', () => {
     expect(clearIntervalSpy).toHaveBeenCalledOnce();
   });
 
+  it('warns once when the deprecated i18n option is set', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { cleanup } = createChatHandler({
+      provider: { type: 'openai', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      i18n: { defaultLocale: 'en', locales: {} },
+    });
+    cleanup();
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy.mock.calls[0][0]).toContain('i18n');
+  });
+
+  it('does not warn when i18n is not set', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { cleanup } = createChatHandler({
+      provider: { type: 'openai', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+    });
+    cleanup();
+
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   it('passes a working tool executor into the streaming provider', async () => {
     const weatherTool = {
       name: 'get_weather',
@@ -247,6 +273,45 @@ describe('createChatHandler', () => {
     }
 
     expect(receivedTimeouts).toEqual([2_500]);
+  });
+
+  it('passes maxTokens and temperature from the config into the provider chat params', async () => {
+    const received: Array<{ maxTokens?: number; temperature?: number }> = [];
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        received.push({ maxTokens: params.maxTokens, temperature: params.temperature });
+        yield 'ok';
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const withOptions = createChatHandler({
+      provider: { type: 'openai', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      maxTokens: 4096,
+      temperature: 0.2,
+    });
+    const withoutOptions = createChatHandler({
+      provider: { type: 'openai', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+    });
+
+    for (const { handleChat } of [withOptions, withoutOptions]) {
+      for await (const _chunk of handleChat({ conversationId: 'conv-params', message: 'Hello' })) {
+        // Drain the stream.
+      }
+    }
+    withOptions.cleanup();
+    withoutOptions.cleanup();
+
+    expect(received).toEqual([
+      { maxTokens: 4096, temperature: 0.2 },
+      { maxTokens: undefined, temperature: undefined },
+    ]);
   });
 
   it('tracks lead capture analytics when a tool succeeds', async () => {
@@ -584,6 +649,96 @@ describe('createChatHandler', () => {
     expect(receivedMessages).toEqual([
       [{ role: 'user', content: 'Hello there' }],
       [{ role: 'user', content: 'Hello there' }],
+    ]);
+  });
+
+  it('restores user message when regenerating an unknown conversation', async () => {
+    const receivedMessages: Array<Array<{ id: string; role: string; content: string }>> = [];
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        receivedMessages.push(
+          params.messages.map((message) => ({
+            id: message.id,
+            role: message.role,
+            content: message.content,
+          }))
+        );
+        yield 'Recovered reply';
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const { handleChat } = createChatHandler({
+      provider: { type: 'claude', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      cors: '*',
+    });
+
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-unknown-regen',
+      message: 'Hello from unknown',
+      messageId: 'user-unknown-1',
+      regenerate: true,
+    })) {
+      // Drain response.
+    }
+
+    expect(receivedMessages).toEqual([
+      [{ id: 'user-unknown-1', role: 'user', content: 'Hello from unknown' }],
+    ]);
+  });
+
+  it('keeps repeated regenerate retries with the same messageId idempotent', async () => {
+    const receivedMessages: Array<Array<{ id: string; role: string; content: string }>> = [];
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        receivedMessages.push(
+          params.messages.map((message) => ({
+            id: message.id,
+            role: message.role,
+            content: message.content,
+          }))
+        );
+        yield receivedMessages.length === 1 ? 'First reply' : 'Retried reply';
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const { handleChat } = createChatHandler({
+      provider: { type: 'claude', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      cors: '*',
+    });
+
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-retry-regen',
+      message: 'Retry message',
+      messageId: 'user-retry-1',
+      regenerate: true,
+    })) {
+      // Drain first turn.
+    }
+
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-retry-regen',
+      message: 'Retry message',
+      messageId: 'user-retry-1',
+      regenerate: true,
+    })) {
+      // Drain retry turn.
+    }
+
+    expect(receivedMessages).toEqual([
+      [{ id: 'user-retry-1', role: 'user', content: 'Retry message' }],
+      [{ id: 'user-retry-1', role: 'user', content: 'Retry message' }],
     ]);
   });
 });
