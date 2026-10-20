@@ -1,6 +1,6 @@
 # @chatcops/widget
 
-Embeddable AI chatbot widget. Zero dependencies, Shadow DOM isolated, ~12KB gzipped.
+Embeddable AI chatbot widget. Zero dependencies, Shadow DOM isolated, ~13KB gzipped.
 
 ## Install
 
