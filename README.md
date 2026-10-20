@@ -51,7 +51,7 @@ That's it. Your site now has an AI chat widget.
 ## Features
 
 - **Multi-provider** - Claude, OpenAI, Gemini. Switch with one config change.
-- **Zero-dependency widget** - Shadow DOM isolated, ~12KB gzipped.
+- **Zero-dependency widget** - Shadow DOM isolated, ~13KB gzipped.
 - **Streaming responses** - Real-time SSE streaming from all providers.
 - **Lead capture** - Built-in tool for capturing contact info, with webhook support.
 - **Knowledge base** - Feed text chunks or FAQ pairs for context-aware responses.
