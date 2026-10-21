@@ -36,7 +36,7 @@ export type {
 export { partsOf, messageText } from './parts.js';
 
 // Wire protocol
-export { PROTOCOL_VERSION, statusForError, errorBody, describeInvalidRequest, toLegacyChunk } from './protocol/index.js';
+export { PROTOCOL_VERSION, encodeSSE, SSE_PING, SSE_DONE, SSE_HEADERS, statusForError, errorBody, describeInvalidRequest, toLegacyChunk } from './protocol/index.js';
 export type {
   LegacyChunk,
   WirePart,
